@@ -1,0 +1,3 @@
+CREATE TABLE orders (id TEXT PRIMARY KEY, owner TEXT NOT NULL, branch TEXT NOT NULL, day TEXT NOT NULL, items TEXT NOT NULL, created INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0);
+--> statement-breakpoint
+CREATE TABLE catalogs (owner TEXT PRIMARY KEY, data TEXT NOT NULL, revision INTEGER NOT NULL);

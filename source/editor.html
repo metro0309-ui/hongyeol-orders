@@ -1,0 +1,64 @@
+<!doctype html><html lang="ko" data-theme="품목"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>품목 수정 · 홍열이네</title><!--STYLE-->
+<header class="mast"><div class="wrap header-inner"><b>홍열이네</b><a style="color:white" href="/">발주 화면으로</a></div></header>
+<main class="wrap" style="max-width:720px"><section class="hero"><h1>품목 수정</h1></section>
+<form id="gate" class="panel footer"><label>품목 수정 비밀번호<input id="pw" type="password" required></label><button class="primary">잠금 해제</button></form>
+<section id="edit" class="panel footer" hidden><label>편집할 카테고리<select id="categories"></select></label>
+<label>품목 목록 · 한 줄에 한 품목<textarea id="items" rows="9"></textarea></label>
+<div id="prices"></div><details><summary>카테고리 추가</summary><label>새 카테고리 이름<input id="newname" maxlength="70"></label><button id="add">카테고리 추가</button></details>
+<details><summary>다른 카테고리로 품목 이동</summary><label>이동할 품목<select id="source"></select></label><label>옮길 카테고리<select id="target"></select></label><button id="move">이동</button></details>
+<button class="primary" id="save">변경사항 저장</button></section><p id="msg" role="status"></p></main>
+<style>.price-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)}.price-row strong{grid-column:1/-1}#categories{font-weight:800;color:var(--accent)}#edit>* ,#gate>*{margin-bottom:14px}textarea{font:inherit;padding:10px}summary{cursor:pointer}details label{margin:8px 0}</style>
+<script>
+const defaults=/*GROUPS*/;
+const el=id=>document.getElementById(id);
+let sections=[],index=0,key="",revision=0;
+function options(id,choices){el(id).replaceChildren(...choices.map(([title,value])=>new Option(title,value)));}
+const pricing=new Map();
+function priceRows(){
+ const panel=el("prices");panel.replaceChildren();
+ for(const name of sections[index].items){
+  const row=document.createElement("div");row.className="price-row";
+  const title=document.createElement("strong");title.textContent=name;row.append(title);
+  const record=pricing.get(name)||{name,quantity:"1",price:""};pricing.set(name,record);
+  for(const [key,label] of [["size","낱개 중량·용량"],["pack","포장당 개입 수"],["price","한 포장 가격(원)"],["quantity","처음 담을 발주 수량"]]){
+   const field=document.createElement("label"),input=document.createElement("input");
+   field.textContent=label;input.type="text";input.inputMode=["pack","price"].includes(key)?"numeric":"text";
+   input.value=record[key]??"";input.placeholder={size:"예 1kg 또는 500ml",pack:"예 12",price:"예 18000",quantity:"예 1"}[key];
+   input.oninput=()=>{record[key]=input.value.trim();el("msg").textContent="저장 전 변경사항이 있습니다.";};
+   field.append(input);row.append(field);
+  }
+  panel.append(row);
+ }
+}
+function moves(){
+ priceRows();
+ options("source",sections[index].items.map(n=>[n,n]));
+ options("target",sections.flatMap((s,i)=>i===index?[]:[[s.title,i]]));
+}
+function draw(){
+ options("categories",sections.map((s,i)=>[s.title+" · "+s.items.length+"종",i]));el("categories").value=index;
+ el("items").value=sections[index].items.join("\n");moves();
+}
+async function request(path,body){
+ const r=await fetch("/api/"+path,body?{method:"POST",headers:{"Content-Type":"application/json","X-Catalog-Password":encodeURIComponent(key)},body:JSON.stringify(body)}:{});
+ if(!r.ok)throw Error(r.status===403?"비밀번호를 확인하세요.":r.status===409?"다른 기기에서 수정했습니다. 새로고침해 다시 확인하세요.":"품목명, 중량·용량(예 500ml), 개입 수(양의 정수), 가격과 발주 수량을 확인하세요.");
+ return r.json();
+}
+el("gate").onsubmit=async e=>{
+ e.preventDefault();key=el("pw").value;
+ try{await request("catalog/unlock",{});const data=await request("state");revision=data.revision;
+ if(data.catalog?.sections){sections=data.catalog.sections;for(const r of data.catalog.pricing||[])pricing.set(r.name,r);}
+ else{
+ const remaining=new Set(data.catalog||Object.values(defaults).flatMap(v=>v.split("|")));
+ sections=Object.entries(defaults).map(([title,v])=>({title,items:v.split("|").filter(n=>remaining.delete(n))}));
+ if(remaining.size)sections.push({title:"내 품목",items:[...remaining]});
+ }
+ draw();el("pw").value="";el("gate").hidden=true;el("edit").hidden=false;el("edit").after(passwordMenu("catalog",()=>key,v=>key=v));el("msg").textContent="";
+ }catch(e){el("msg").textContent=e.message;}
+};
+el("items").oninput=()=>{sections[index].items=el("items").value.split("\n").map(n=>n.trim()).filter(Boolean);moves();el("msg").textContent="저장 전 변경사항이 있습니다.";};
+el("categories").onchange=()=>{index=Number(el("categories").value);draw();};
+el("add").onclick=()=>{const title=el("newname").value.trim();if(!title||title.includes("|")||sections.some(s=>s.title===title)){el("msg").textContent="새 카테고리 이름을 확인하세요.";return;}index=sections.push({title,items:[]})-1;el("newname").value="";draw();el("msg").textContent="카테고리를 추가했습니다. 변경사항을 저장하세요.";};
+el("move").onclick=()=>{const n=el("source").value,t=el("target").value;if(!n||!t.length)return;sections[index].items=sections[index].items.filter(v=>v!==n);sections[Number(t)].items.push(n);draw();el("msg").textContent=n+" 이동 · 변경사항을 저장하세요.";};
+el("save").onclick=async()=>{el("edit").inert=true;try{await request("catalog",{sections,revision,pricing:sections.flatMap(s=>s.items.map(n=>pricing.get(n)).filter(Boolean))});revision++;el("msg").textContent="카테고리와 품목을 저장했습니다.";}catch(e){el("msg").textContent=e.message;}finally{el("edit").inert=false;}};
+</script></html>
